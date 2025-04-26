@@ -1,55 +1,33 @@
-import ffmpegPath from 'ffmpeg-static';
-import path from 'path';
-import fs from 'fs';
-import { v4 as uuidv4 } from 'uuid';
-import fetch from 'node-fetch';
-
 const ffmpeg = require('fluent-ffmpeg');
-ffmpeg.setFfmpegPath(path.resolve(ffmpegPath!));
+const ffmpegPath = require('ffmpeg-static');
+const fs = require('fs');
+const path = require('path');
+const { v4: uuidv4 } = require('uuid');
 
-export async function generateVideo({
-  imageUrls,
-  audioPath,
-  scriptText
-}: {
-  imageUrls: string[];
-  audioPath: string;
-  scriptText: string;
-}): Promise<string> {
+ffmpeg.setFfmpegPath(ffmpegPath);
+
+exports.generateVideo = async function ({ imageUrls, audioPath }) {
   const tmpDir = path.join('/tmp', uuidv4());
   fs.mkdirSync(tmpDir);
 
-  const imagePaths: string[] = [];
+  const imagePaths = imageUrls.map((src, i) => {
+    const newPath = path.join(tmpDir, `img${i}.jpg`);
+    fs.copyFileSync(src, newPath);
+    return newPath;
+  });
 
-  for (let i = 0; i < imageUrls.length; i++) {
-    const image = imageUrls[i];
-    const filePath = path.join(tmpDir, `img${i}.jpg`);
+  const imageListPath = path.join(tmpDir, 'images.txt');
+  const videoPath = path.join(tmpDir, 'output.mp4');
 
-    if (image.startsWith('http')) {
-      const res = await fetch(image);
-      if (!res.ok) throw new Error(`Failed to fetch image: ${image}`);
-      const buffer = await res.buffer();
-      fs.writeFileSync(filePath, buffer);
-    } else {
-      fs.copyFileSync(image, filePath);
-    }
+  const content = imagePaths
+    .map((p) => `file '${p}'\nduration 5`)
+    .join('\n') + `\nfile '${imagePaths[imagePaths.length - 1]}'`;
 
-    imagePaths.push(filePath);
-  }
-
-  const inputFileList = path.join(tmpDir, 'images.txt');
-  const durationPerImage = 5;
-
-  const content = imagePaths.map(p => `file '${p}'\nduration ${durationPerImage}`).join('\n');
-  const lastImage = `file '${imagePaths[imagePaths.length - 1]}'`;
-
-  fs.writeFileSync(inputFileList, `${content}\n${lastImage}\n${lastImage}`);
-
-  const outputPath = path.join(tmpDir, 'final.mp4');
+  fs.writeFileSync(imageListPath, content);
 
   return new Promise((resolve, reject) => {
     ffmpeg()
-      .input(inputFileList)
+      .input(imageListPath)
       .inputOptions(['-f', 'concat', '-safe', '0'])
       .input(audioPath)
       .outputOptions([
@@ -60,17 +38,15 @@ export async function generateVideo({
       ])
       .audioCodec('aac')
       .videoCodec('libx264')
-      .save(outputPath)
-      .on('start', (commandLine: string) => {
-        console.log('🎬 FFmpeg started with command:', commandLine);
-      })
+      .save(videoPath)
+      .on('start', command => console.log('[FFMPEG CMD]', command))
       .on('end', () => {
-        console.log('✅ FFmpeg finished. Video created at:', outputPath);
-        resolve(outputPath);
+        console.log('[FFMPEG DONE]');
+        resolve(videoPath);
       })
-      .on('error', (err: any) => {
-        console.error('❌ FFmpeg error:', err);
+      .on('error', (err) => {
+        console.error('[FFMPEG ERROR]', err);
         reject(err);
       });
   });
-}
+};
