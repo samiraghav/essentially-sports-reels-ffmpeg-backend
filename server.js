@@ -2,17 +2,14 @@ const express = require('express');
 const { IncomingForm } = require('formidable');
 const fs = require('fs');
 const path = require('path');
-const ffmpegPath = require('ffmpeg-static');
-const ffmpeg = require('fluent-ffmpeg');
 const cors = require('cors');
+const { generateVideo } = require('./generateVideo');
+const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
 require('dotenv').config();
-
-ffmpeg.setFfmpegPath(ffmpegPath);
 
 const app = express();
 app.use(cors());
 
-const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
 const s3 = new S3Client({
   region: process.env.AWS_REGION,
   credentials: {
@@ -22,85 +19,34 @@ const s3 = new S3Client({
 });
 
 app.post('/ffmpeg/generate-video', (req, res) => {
-  const form = new IncomingForm({
-    multiples: true,
-    uploadDir: '/tmp',
-    keepExtensions: true,
-  });
+  const form = new IncomingForm({ multiples: true, uploadDir: '/tmp', keepExtensions: true });
 
   form.parse(req, async (err, fields, files) => {
-    if (err) {
-      console.error('[FORM_PARSE_ERROR]', err);
-      return res.status(500).json({ error: 'Form parse error' });
-    }
-
-    console.log('\n========= [FFMPEG BACKEND INVOKED] =========');
-    console.log('[FIELDS]', fields);
-    console.log('[FILES]', files);
+    if (err) return res.status(500).json({ error: 'Form parse error' });
 
     try {
+      const name = fields.name || 'unknown';
+      const sport = fields.sport || 'unknown';
+      const thumbnail = fields.thumbnail || 'unknown';
       const audioFile = Array.isArray(files.audio) ? files.audio[0] : files.audio;
+
       if (!audioFile || !audioFile.filepath) {
-        console.error('[ERROR] Missing audio file in request');
         return res.status(400).json({ error: 'Audio file missing' });
       }
 
       const audioPath = audioFile.filepath;
-      console.log('[AUDIO PATH]', audioPath);
 
-      const images = Array.isArray(files.images) ? files.images : [files.images];
-      if (!images || !images.length) {
-        console.error('[ERROR] No images provided');
-        return res.status(400).json({ error: 'Image files missing' });
-      }
+      const imageFiles = Array.isArray(files.images) ? files.images : [files.images];
+      const imageUrls = imageFiles.map(file => `file://${file.filepath}`);
 
-      const tmpDir = fs.mkdtempSync(path.join('/tmp/', 'reel-'));
-      const imageListPath = path.join(tmpDir, 'images.txt');
-      const videoPath = path.join(tmpDir, 'output.mp4');
+      console.log('[GENERATION START]', { name, sport, thumbnail, audioPath, imageUrls });
 
-      const imagePaths = images.map((file, i) => {
-        const newPath = path.join(tmpDir, `img${i}.jpg`);
-        fs.copyFileSync(file.filepath, newPath);
-        return newPath;
+      const finalVideoPath = await generateVideo({
+        imageUrls: imageFiles.map(img => img.filepath),
+        audioPath
       });
 
-      const imageTxt = imagePaths
-        .map(p => `file '${p}'\nduration 5`)
-        .join('\n') + `\nfile '${imagePaths[imagePaths.length - 1]}'`;
-
-      fs.writeFileSync(imageListPath, imageTxt);
-      console.log('[TEMP DIR]', tmpDir);
-      console.log('[IMAGE LIST]', imageListPath);
-      console.log('[VIDEO OUT PATH]', videoPath);
-
-      await new Promise((resolve, reject) => {
-        ffmpeg()
-          .input(imageListPath)
-          .inputOptions(['-f', 'concat', '-safe', '0'])
-          .input(audioPath)
-          .outputOptions([
-            '-vf', 'scale=720:1280,format=yuv420p',
-            '-shortest',
-            '-preset', 'fast',
-            '-r', '30'
-          ])
-          .audioCodec('aac')
-          .videoCodec('libx264')
-          .save(videoPath)
-          .on('start', command => console.log('[FFMPEG STARTED]', command))
-          .on('end', () => {
-            console.log('[FFMPEG DONE]');
-            resolve();
-          })
-          .on('error', (err) => {
-            console.error('[FFMPEG ERROR]', err);
-            reject(err);
-          });
-      });
-
-      console.log('[VIDEO GENERATED SUCCESSFULLY]', videoPath);
-
-      const fileContent = fs.readFileSync(videoPath);
+      const fileContent = fs.readFileSync(finalVideoPath);
       const s3Key = `reels/${Date.now()}.mp4`;
 
       const command = new PutObjectCommand({
@@ -109,9 +55,9 @@ app.post('/ffmpeg/generate-video', (req, res) => {
         Body: fileContent,
         ContentType: 'video/mp4',
         Metadata: {
-          celebrity: fields.name || 'unknown',
-          sport: fields.sport || 'unknown',
-          thumbnail: fields.thumbnail || 'unknown',
+          celebrity: name,
+          sport,
+          thumbnail,
           generated_on: new Date().toISOString(),
           duration: '30',
         },
@@ -120,13 +66,10 @@ app.post('/ffmpeg/generate-video', (req, res) => {
       await s3.send(command);
       console.log('[S3 UPLOAD DONE]', s3Key);
 
-      res.status(200).json({
-        message: 'Video generated and uploaded',
-        s3Key,
-      });
+      res.status(200).json({ message: 'Uploaded', s3Key });
     } catch (e) {
-      console.error('[FFMPEG_GENERATION_ERROR]', e);
-      res.status(500).json({ error: 'FFmpeg generation failed', details: e.message });
+      console.error('[GENERATION_ERROR]', e);
+      res.status(500).json({ error: 'Video generation failed', details: e.message });
     }
   });
 });
