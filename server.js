@@ -4,7 +4,6 @@ const fs = require('fs');
 const path = require('path');
 const ffmpegPath = require('ffmpeg-static');
 const ffmpeg = require('fluent-ffmpeg');
-const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
 const cors = require('cors');
 require('dotenv').config();
 
@@ -13,27 +12,16 @@ ffmpeg.setFfmpegPath(ffmpegPath);
 const app = express();
 app.use(cors());
 
-const s3 = new S3Client({
-  region: process.env.AWS_REGION,
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-  },
-});
-
-app.post('/api/generate', (req, res) => {
+app.post('/ffmpeg/generate-video', (req, res) => {
   const form = new IncomingForm({ multiples: true, uploadDir: '/tmp', keepExtensions: true });
 
   form.parse(req, async (err, fields, files) => {
     if (err) return res.status(500).json({ error: 'Form parse error' });
 
     try {
-      const name = fields.name;
-      const sport = fields.sport || 'unknown';
-      const thumbnail = fields.thumbnail || 'unknown';
       const audioPath = files.audio?.filepath;
-
       const images = Array.isArray(files.images) ? files.images : [files.images];
+
       const tmpDir = fs.mkdtempSync(path.join('/tmp/', 'reel-'));
       const imageListPath = path.join(tmpDir, 'images.txt');
       const videoPath = path.join(tmpDir, 'output.mp4');
@@ -47,6 +35,7 @@ app.post('/api/generate', (req, res) => {
       const imageTxt = imagePaths
         .map(p => `file '${p}'\nduration 5`)
         .join('\n') + `\nfile '${imagePaths[imagePaths.length - 1]}'`;
+
       fs.writeFileSync(imageListPath, imageTxt);
 
       await new Promise((resolve, reject) => {
@@ -67,29 +56,10 @@ app.post('/api/generate', (req, res) => {
           .on('error', reject);
       });
 
-      const fileContent = fs.readFileSync(videoPath);
-      const s3Key = `reels/${Date.now()}.mp4`;
-
-      const command = new PutObjectCommand({
-        Bucket: process.env.AWS_S3_BUCKET,
-        Key: s3Key,
-        Body: fileContent,
-        ContentType: 'video/mp4',
-        Metadata: {
-          celebrity: name,
-          sport,
-          generated_on: new Date().toISOString(),
-          duration: '30',
-          thumbnail,
-        },
-      });
-
-      await s3.send(command);
-
-      res.status(200).json({ message: 'Reel generated successfully', s3Key });
+      res.status(200).json({ message: 'Video generated', videoPath });
     } catch (e) {
-      console.error(e);
-      res.status(500).json({ error: 'Generation failed', details: e.message });
+      console.error('[FFMPEG_GENERATION_ERROR]', e);
+      res.status(500).json({ error: 'FFmpeg generation failed', details: e.message });
     }
   });
 });
