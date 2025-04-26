@@ -13,21 +13,37 @@ const app = express();
 app.use(cors());
 
 app.post('/ffmpeg/generate-video', (req, res) => {
-  const form = new IncomingForm({ multiples: true, uploadDir: '/tmp', keepExtensions: true });
+  const form = new IncomingForm({
+    multiples: true,
+    uploadDir: '/tmp',
+    keepExtensions: true,
+  });
 
   form.parse(req, async (err, fields, files) => {
-    if (err) return res.status(500).json({ error: 'Form parse error' });
+    if (err) {
+      console.error('[FORM_PARSE_ERROR]', err);
+      return res.status(500).json({ error: 'Form parse error' });
+    }
+
+    console.log('\n========= [FFMPEG BACKEND INVOKED] =========');
+    console.log('[FIELDS]', fields);
+    console.log('[FILES]', files);
 
     try {
-      const audioFile = files.audio;
+      const audioFile = Array.isArray(files.audio) ? files.audio[0] : files.audio;
       if (!audioFile || !audioFile.filepath) {
         console.error('[ERROR] Missing audio file in request');
         return res.status(400).json({ error: 'Audio file missing' });
       }
 
       const audioPath = audioFile.filepath;
+      console.log('[AUDIO PATH]', audioPath);
 
       const images = Array.isArray(files.images) ? files.images : [files.images];
+      if (!images || !images.length) {
+        console.error('[ERROR] No images provided');
+        return res.status(400).json({ error: 'Image files missing' });
+      }
 
       const tmpDir = fs.mkdtempSync(path.join('/tmp/', 'reel-'));
       const imageListPath = path.join(tmpDir, 'images.txt');
@@ -44,7 +60,11 @@ app.post('/ffmpeg/generate-video', (req, res) => {
         .join('\n') + `\nfile '${imagePaths[imagePaths.length - 1]}'`;
 
       fs.writeFileSync(imageListPath, imageTxt);
+      console.log('[TEMP DIR]', tmpDir);
+      console.log('[IMAGE LIST]', imageListPath);
+      console.log('[VIDEO OUT PATH]', videoPath);
 
+      // Run ffmpeg
       await new Promise((resolve, reject) => {
         ffmpeg()
           .input(imageListPath)
@@ -59,11 +79,23 @@ app.post('/ffmpeg/generate-video', (req, res) => {
           .audioCodec('aac')
           .videoCodec('libx264')
           .save(videoPath)
-          .on('end', resolve)
-          .on('error', reject);
+          .on('start', command => console.log('[FFMPEG STARTED]', command))
+          .on('end', () => {
+            console.log('[FFMPEG DONE]');
+            resolve();
+          })
+          .on('error', (err) => {
+            console.error('[FFMPEG ERROR]', err);
+            reject(err);
+          });
       });
 
-      res.status(200).json({ message: 'Video generated', videoPath });
+      console.log('[VIDEO GENERATED SUCCESSFULLY]', videoPath);
+
+      res.status(200).json({
+        message: 'Video generated successfully',
+        videoPath,
+      });
     } catch (e) {
       console.error('[FFMPEG_GENERATION_ERROR]', e);
       res.status(500).json({ error: 'FFmpeg generation failed', details: e.message });
@@ -72,4 +104,4 @@ app.post('/ffmpeg/generate-video', (req, res) => {
 });
 
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => console.log(`✅ FFmpeg server running on port ${PORT}`));
