@@ -25,9 +25,14 @@ app.post('/ffmpeg/generate-video', (req, res) => {
     if (err) return res.status(500).json({ error: 'Form parse error' });
 
     try {
-      const name = fields.name || 'unknown';
-      const sport = fields.sport || 'unknown';
-      const thumbnail = fields.thumbnail || 'unknown';
+      const rawName = fields.name;
+      const rawSport = fields.sport;
+      const rawThumbnail = fields.thumbnail;
+
+      const name = Array.isArray(rawName) ? rawName[0] : rawName || 'unknown';
+      const sport = Array.isArray(rawSport) ? rawSport[0] : rawSport || 'unknown';
+      const thumbnail = Array.isArray(rawThumbnail) ? rawThumbnail[0] : rawThumbnail || 'unknown';
+
       const audioFile = Array.isArray(files.audio) ? files.audio[0] : files.audio;
 
       if (!audioFile || !audioFile.filepath) {
@@ -56,8 +61,8 @@ app.post('/ffmpeg/generate-video', (req, res) => {
         ContentType: 'video/mp4',
         Metadata: {
           celebrity: name,
-          sport,
-          thumbnail,
+          sport: sport,
+          thumbnail: thumbnail,
           generated_on: new Date().toISOString(),
           duration: '30',
         },
