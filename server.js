@@ -1,5 +1,5 @@
 const express = require('express');
-const formidable = require('formidable');
+const { IncomingForm } = require('formidable');
 const fs = require('fs');
 const path = require('path');
 const ffmpegPath = require('ffmpeg-static');
@@ -22,7 +22,7 @@ const s3 = new S3Client({
 });
 
 app.post('/api/generate', (req, res) => {
-  const form = formidable({ multiples: true, uploadDir: '/tmp', keepExtensions: true });
+  const form = new IncomingForm({ multiples: true, uploadDir: '/tmp', keepExtensions: true });
 
   form.parse(req, async (err, fields, files) => {
     if (err) return res.status(500).json({ error: 'Form parse error' });
@@ -31,10 +31,9 @@ app.post('/api/generate', (req, res) => {
       const name = fields.name;
       const sport = fields.sport || 'unknown';
       const thumbnail = fields.thumbnail || 'unknown';
-
       const audioPath = files.audio?.filepath;
-      const images = Array.isArray(files.images) ? files.images : [files.images];
 
+      const images = Array.isArray(files.images) ? files.images : [files.images];
       const tmpDir = fs.mkdtempSync(path.join('/tmp/', 'reel-'));
       const imageListPath = path.join(tmpDir, 'images.txt');
       const videoPath = path.join(tmpDir, 'output.mp4');
@@ -45,8 +44,9 @@ app.post('/api/generate', (req, res) => {
         return newPath;
       });
 
-      const imageTxt = imagePaths.map(p => `file '${p}'
-duration 5`).join('\n') + `\nfile '${imagePaths[imagePaths.length - 1]}'`;
+      const imageTxt = imagePaths
+        .map(p => `file '${p}'\nduration 5`)
+        .join('\n') + `\nfile '${imagePaths[imagePaths.length - 1]}'`;
       fs.writeFileSync(imageListPath, imageTxt);
 
       await new Promise((resolve, reject) => {
@@ -54,7 +54,12 @@ duration 5`).join('\n') + `\nfile '${imagePaths[imagePaths.length - 1]}'`;
           .input(imageListPath)
           .inputOptions(['-f', 'concat', '-safe', '0'])
           .input(audioPath)
-          .outputOptions(['-vf', 'scale=720:1280,format=yuv420p', '-shortest', '-preset', 'fast', '-r', '30'])
+          .outputOptions([
+            '-vf', 'scale=720:1280,format=yuv420p',
+            '-shortest',
+            '-preset', 'fast',
+            '-r', '30'
+          ])
           .audioCodec('aac')
           .videoCodec('libx264')
           .save(videoPath)
