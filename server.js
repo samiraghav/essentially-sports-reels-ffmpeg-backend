@@ -19,7 +19,14 @@ app.post('/ffmpeg/generate-video', (req, res) => {
     if (err) return res.status(500).json({ error: 'Form parse error' });
 
     try {
-      const audioPath = files.audio?.filepath;
+      const audioFile = files.audio;
+      if (!audioFile || !audioFile.filepath) {
+        console.error('[ERROR] Missing audio file in request');
+        return res.status(400).json({ error: 'Audio file missing' });
+      }
+
+      const audioPath = audioFile.filepath;
+
       const images = Array.isArray(files.images) ? files.images : [files.images];
 
       const tmpDir = fs.mkdtempSync(path.join('/tmp/', 'reel-'));
