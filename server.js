@@ -12,6 +12,15 @@ ffmpeg.setFfmpegPath(ffmpegPath);
 const app = express();
 app.use(cors());
 
+const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
+const s3 = new S3Client({
+  region: process.env.AWS_REGION,
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  },
+});
+
 app.post('/ffmpeg/generate-video', (req, res) => {
   const form = new IncomingForm({
     multiples: true,
@@ -64,7 +73,6 @@ app.post('/ffmpeg/generate-video', (req, res) => {
       console.log('[IMAGE LIST]', imageListPath);
       console.log('[VIDEO OUT PATH]', videoPath);
 
-      // Run ffmpeg
       await new Promise((resolve, reject) => {
         ffmpeg()
           .input(imageListPath)
@@ -92,9 +100,29 @@ app.post('/ffmpeg/generate-video', (req, res) => {
 
       console.log('[VIDEO GENERATED SUCCESSFULLY]', videoPath);
 
+      const fileContent = fs.readFileSync(videoPath);
+      const s3Key = `reels/${Date.now()}.mp4`;
+
+      const command = new PutObjectCommand({
+        Bucket: process.env.AWS_S3_BUCKET,
+        Key: s3Key,
+        Body: fileContent,
+        ContentType: 'video/mp4',
+        Metadata: {
+          celebrity: fields.name || 'unknown',
+          sport: fields.sport || 'unknown',
+          thumbnail: fields.thumbnail || 'unknown',
+          generated_on: new Date().toISOString(),
+          duration: '30',
+        },
+      });
+
+      await s3.send(command);
+      console.log('[S3 UPLOAD DONE]', s3Key);
+
       res.status(200).json({
-        message: 'Video generated successfully',
-        videoPath,
+        message: 'Video generated and uploaded',
+        s3Key,
       });
     } catch (e) {
       console.error('[FFMPEG_GENERATION_ERROR]', e);
@@ -104,4 +132,4 @@ app.post('/ffmpeg/generate-video', (req, res) => {
 });
 
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => console.log(`✅ FFmpeg server running on port ${PORT}`));
+app.listen(PORT, () => console.log(`FFmpeg server running on port ${PORT}`));
