@@ -42,26 +42,27 @@ Endpoint
 ```
 
 #### Video Generation Logic
-Input images are converted into a temporary images.txt file with FFmpeg duration entries.
+- Input images are converted into a temporary images.txt file with FFmpeg duration entries.
 
-FFmpeg concatenates all images using:
+- FFmpeg concatenates all images using:
 
 ffmpeg -f concat -safe 0 -i images.txt -i audio.mp3 \
   -vf scale=720:1280,format=yuv420p -shortest -preset fast -r 30 output.mp4
-Output is stored in /tmp/output.mp4 before uploading.
+  
+- Output is stored in /tmp/output.mp4 before uploading.
 
 #### AWS S3 Upload
-Uploaded with metadata:
+- Uploaded with metadata:
 
-celebrity: name
+- celebrity: name
 
-sport: category
+- sport: category
 
-thumbnail: image URL
+- thumbnail: image URL
 
-generated_on: ISO timestamp
+- generated_on: ISO timestamp
 
-duration: fixed at 30 seconds
+- duration: fixed at 30 seconds
 
 Configure via .env:
 
@@ -71,9 +72,9 @@ Configure via .env:
 - AWS_S3_BUCKET=your-bucket
 
 #### Setup
-Install dependencies
-npm install
-Start server
-node server.js
-Default port is 4000. You can override with:
-PORT=5000 node server.js
+- Install dependencies
+- npm install
+- Start server
+- node server.js
+- Default port is 4000. You can override with:
+- PORT=5000 node server.js
