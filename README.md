@@ -65,10 +65,10 @@ duration: fixed at 30 seconds
 
 Configure via .env:
 
-AWS_REGION=your-region
-AWS_ACCESS_KEY_ID=your-key
-AWS_SECRET_ACCESS_KEY=your-secret
-AWS_S3_BUCKET=your-bucket
+- AWS_REGION=your-region
+- AWS_ACCESS_KEY_ID=your-key
+- AWS_SECRET_ACCESS_KEY=your-secret
+- AWS_S3_BUCKET=your-bucket
 
 #### Setup
 Install dependencies
